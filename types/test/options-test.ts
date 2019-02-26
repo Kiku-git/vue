@@ -1,5 +1,5 @@
-import Vue, { VNode } from "../index";
-import { AsyncComponent, ComponentOptions, FunctionalComponentOptions, Component } from "../index";
+import Vue, { PropType, VNode } from "../index";
+import { ComponentOptions, Component } from "../index";
 import { CreateElement } from "../vue";
 
 interface MyComponent extends Vue {
@@ -59,20 +59,36 @@ class Cat {
   private u = 1
 }
 
+interface IUser {
+  foo: string,
+  bar: number
+}
+
+interface ICat {
+  foo: any,
+  bar: object
+}
+
 Vue.component('union-prop', {
   props: {
-    primitive: [String, Number],
-    object: [Cat, User],
-    regex: RegExp,
+    cat: Object as PropType<ICat>,
+    complexUnion: { type: [User, Number] as PropType<User | number> },
+    kittyUser: Object as PropType<ICat & IUser>,
     mixed: [RegExp, Array],
-    union: [User, Number] as {new(): User | Number}[] // requires annotation
+    object: [Cat, User],
+    primitive: [String, Number],
+    regex: RegExp,
+    union: [User, Number] as PropType<User | number>
   },
   data() {
-    this.primitive;
-    this.object;
-    this.union;
-    this.regex.compile;
+    this.cat;
+    this.complexUnion;
+    this.kittyUser;
     this.mixed;
+    this.object;
+    this.primitive;
+    this.regex.compile;
+    this.union;
     return {
       fixedSize: this.union,
     }
@@ -202,6 +218,9 @@ Vue.component('component', {
       [createElement("div", "message")]
     ]);
   },
+  renderError(createElement, err) {
+    return createElement('pre', { style: { color: 'red' }}, err.stack)
+  },
   staticRenderFns: [],
 
   beforeCreate() {
@@ -221,6 +240,9 @@ Vue.component('component', {
     vm.$emit('error')
     info.toUpperCase()
     return true
+  },
+  serverPrefetch () {
+    return Promise.resolve()
   },
 
   directives: {
@@ -278,6 +300,12 @@ Vue.component('provide-function', {
   })
 })
 
+Vue.component('component-with-slot', {
+  render (h): VNode {
+    return h('div', this.$slots.default)
+  }
+})
+
 Vue.component('component-with-scoped-slot', {
   render (h) {
     interface ScopedSlotProps {
@@ -294,15 +322,29 @@ Vue.component('component-with-scoped-slot', {
           // named scoped slot as vnode data
           item: (props: ScopedSlotProps) => [h('span', [props.msg])]
         }
+      }),
+      h('child', {
+        // Passing down all slots from parent
+        scopedSlots: this.$scopedSlots
+      }),
+      h('child', {
+        // Passing down single slot from parent
+        scopedSlots: {
+          default: this.$scopedSlots.default
+        }
       })
     ])
   },
   components: {
     child: {
       render (this: Vue, h: CreateElement) {
+        const defaultSlot = this.$scopedSlots['default']!({ msg: 'hi' })
+        defaultSlot && defaultSlot.forEach(vnode => {
+          vnode.tag
+        })
         return h('div', [
-          this.$scopedSlots['default']({ msg: 'hi' }),
-          this.$scopedSlots['item']({ msg: 'hello' })
+          defaultSlot,
+          this.$scopedSlots['item']!({ msg: 'hello' })
         ])
       }
     }
@@ -311,14 +353,25 @@ Vue.component('component-with-scoped-slot', {
 
 Vue.component('narrow-array-of-vnode-type', {
   render (h): VNode {
-    const slot = this.$scopedSlots.default({})
-    if (typeof slot !== 'string') {
+    const slot = this.$scopedSlots.default!({})
+    if (typeof slot === 'string') {
+      // <template slot-scope="data">bare string</template>
+      return h('span', slot)
+    } else if (Array.isArray(slot)) {
+      // template with multiple children
       const first = slot[0]
-      if (!Array.isArray(first) && typeof first !== 'string') {
-        return first;
+      if (!Array.isArray(first) && typeof first !== 'string' && first) {
+        return first
+      } else {
+        return h()
       }
+    } else if (slot) {
+      // <div slot-scope="data">bare VNode</div>
+      return slot
+    } else {
+      // empty template, slot === undefined
+      return h()
     }
-    return h();
   }
 })
 
@@ -332,6 +385,7 @@ Vue.component('functional-component', {
     context.slots();
     context.data;
     context.parent;
+    context.scopedSlots;
     context.listeners.click;
     return createElement("div", {}, context.children);
   }
